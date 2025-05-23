@@ -188,7 +188,7 @@ def process_cargo_page(page, cargo_name, cargo_url, all_exams_data_list, output_
             else:
                 print(f"Added new exam for '{current_exam_key}' (no PDF URLs found or page load failed).")
 
-            print(f"Total exams added: {len(all_exams_data_list)}")
+            print(f"Total exams added: {len(all_exams_data_list)}\n")
 
         time.sleep(2)
 
