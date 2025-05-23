@@ -2,7 +2,8 @@
 Browser-based PDF URL Extractor for PCIConcursos
 
 This script extracts PDF URLs from exam detail pages on PCIConcursos.com.br
-using browser automation with Playwright.
+using browser automation with Playwright. It saves all data to a single
+output.json file.
 
 Requirements:
 - Python 3.6+
@@ -15,7 +16,7 @@ pip install playwright beautifulsoup4 requests
 playwright install
 
 Usage:
-python pci_scrapper.py
+python pci_scrapper_single_output.py
 """
 
 import json
@@ -40,10 +41,8 @@ def extract_pdf_urls(page, exam_url):
         // Look for links with "Baixar" text that point to PDF files
         for (const link of allLinks) {
             if (link.textContent.includes("Baixar")) {
-                // Get the actual href attribute
                 const href = link.getAttribute("href");
                 if (href && href.includes(".pdf")) {
-                    // Fix the URL to avoid duplication of domain
                     if (href.startsWith("http")) {
                         pdfLinks.push(href);
                     } else {
@@ -58,7 +57,6 @@ def extract_pdf_urls(page, exam_url):
             for (const link of allLinks) {
                 const href = link.getAttribute("href");
                 if (href && href.includes(".pdf")) {
-                    // Fix the URL to avoid duplication of domain
                     if (href.startsWith("http")) {
                         pdfLinks.push(href);
                     } else {
@@ -67,89 +65,18 @@ def extract_pdf_urls(page, exam_url):
                 }
             }
         }
-
-        // Remove duplicates
         return [...new Set(pdfLinks)];
     }""")
     
     return pdf_links
 
-# MODIFIED Function to update exam data with PDF URLs
-def update_exam_with_pdf_urls(cargo_name, exam_details_from_link, pdf_urls_found):
-    # Convert cargo name to filename format - handle special characters properly
-    cargo_filename = cargo_name.lower()
-    cargo_filename = cargo_filename.replace("ã", "a").replace("á", "a").replace("â", "a")
-    cargo_filename = cargo_filename.replace("é", "e").replace("ê", "e")
-    cargo_filename = cargo_filename.replace("í", "i")
-    cargo_filename = cargo_filename.replace("ó", "o").replace("ô", "o")
-    cargo_filename = cargo_filename.replace("ú", "u")
-    cargo_filename = cargo_filename.replace("ç", "c")
-    cargo_filename = cargo_filename.replace(" ", "_").replace("-", "_").replace("/", "_").replace("\\", "_")
-    
-    json_file = f"{cargo_filename}_exams.json"
-    
-    exams_list = []
-    try:
-        # Load existing exam data if file exists
-        with open(json_file, "r", encoding="utf-8") as f:
-            exams_list = json.load(f)
-        # Ensure the loaded data is a list
-        if not isinstance(exams_list, list):
-            print(f"Warning: Content of {json_file} was not a list. Reinitializing.")
-            exams_list = []
-    except FileNotFoundError:
-        print(f"{json_file} not found. A new file will be created.")
-        # exams_list is already initialized as an empty list
-    except json.JSONDecodeError:
-        print(f"Error decoding JSON from {json_file}. File content will be replaced/reinitialized.")
-        exams_list = [] # Reset to empty list if file is corrupt
-    except Exception as e:
-        print(f"An unexpected error occurred while loading {json_file}: {e}. File will be reinitialized.")
-        exams_list = []
-
-    # Key for the current exam being processed (using lowercase keys from exam_details_from_link)
-    # exam_details_from_link contains: 'position', 'agency', 'year', 'url', 'organizer', 'level'
-    current_exam_key = f"{exam_details_from_link.get('position','')} - {exam_details_from_link.get('agency','')} - {exam_details_from_link.get('year','')}"
-    
-    exam_found_in_file = False
-    for exam_in_list in exams_list:
-        # Construct key from exam_in_list, assuming it also uses lowercase keys
-        key_from_file_exam = f"{exam_in_list.get('position','')} - {exam_in_list.get('agency','')} - {exam_in_list.get('year','')}"
-        if key_from_file_exam == current_exam_key:
-            # Update existing exam entry
-            exam_in_list.update(exam_details_from_link) # Update with all current details
-            exam_in_list['PdfUrls'] = pdf_urls_found    # Set/update PDF URLs
-            exam_found_in_file = True
-            print(f"Updated {current_exam_key} in {json_file}")
-            break
-            
-    if not exam_found_in_file:
-        # Exam not found, so add it as a new entry
-        new_exam_entry = exam_details_from_link.copy() # Copy all details
-        new_exam_entry['PdfUrls'] = pdf_urls_found     # Add PDF URLs
-        exams_list.append(new_exam_entry)
-        print(f"Added new entry for {current_exam_key} to {json_file}")
-
-    try:
-        # Save the updated list back to the JSON file
-        with open(json_file, "w", encoding="utf-8") as f:
-            json.dump(exams_list, f, ensure_ascii=False, indent=2)
-        # print(f"Successfully saved data to {json_file}") # Optional: for more verbose logging
-        return True
-    except Exception as e:
-        print(f"Error saving updated data to {json_file}: {e}")
-        return False
-
 # Function to extract exam links from a cargo page
 def extract_exam_links(page, cargo_url):
     print(f"Extracting exam links from {cargo_url}")
     
-    # Navigate to the cargo page
     page.goto(cargo_url, wait_until="networkidle")
     
-    # Execute JavaScript to extract exam links
     exam_links = page.evaluate("""() => {
-        // Extract exam links from the table
         const examLinks = [];
         const rows = document.querySelectorAll("table tr");
         
@@ -170,101 +97,91 @@ def extract_exam_links(page, cargo_url):
                 }
             }
         }
-        
         return examLinks;
     }""")
     
     return exam_links
 
 # MODIFIED process_cargo function
-def process_cargo(page, cargo_name, cargo_url):
+def process_cargo(page, cargo_name, cargo_url, all_exams_data_list):
     print(f"Processing cargo: {cargo_name} at {cargo_url}")
     
-    # Load existing PDF URLs data if available (for the master list)
-    pdf_urls_file = "exam_pdf_urls.json"
-    if os.path.exists(pdf_urls_file):
-        try:
-            with open(pdf_urls_file, "r", encoding="utf-8") as f:
-                exam_pdf_urls = json.load(f)
-            if not isinstance(exam_pdf_urls, dict): # Ensure it's a dictionary
-                print(f"Warning: {pdf_urls_file} did not contain a dictionary. Reinitializing.")
-                exam_pdf_urls = {}
-        except json.JSONDecodeError:
-            print(f"Error decoding JSON from {pdf_urls_file}. Reinitializing master PDF URL list.")
-            exam_pdf_urls = {}
-        except Exception as e:
-            print(f"An unexpected error occurred loading {pdf_urls_file}: {e}. Reinitializing master PDF URL list.")
-            exam_pdf_urls = {}
-    else:
-        exam_pdf_urls = {}
-    
-    # Extract exam links from the cargo page
-    # exam_link_list will be a list of dictionaries, e.g., [{'url': ..., 'position': ..., 'year': ..., ...}, ...]
     exam_link_list = extract_exam_links(page, cargo_url)
     print(f"Found {len(exam_link_list)} exam links for {cargo_name}")
     
-    # Process each exam link
-    for i, exam_link_details in enumerate(exam_link_list):
-        # exam_link_details is a dictionary with keys: 'url', 'position', 'year', 'agency', 'organizer', 'level'
-        # These keys are lowercase as returned by the JavaScript in extract_exam_links
-        
-        print(f"Processing exam {i+1}/{len(exam_link_list)}: {exam_link_details.get('position','N/A')} - {exam_link_details.get('agency','N/A')} - {exam_link_details.get('year','N/A')}")
-        
-        # Create a key for the exam for the master list (exam_pdf_urls)
-        # Ensure consistency by using lowercase keys from exam_link_details
-        exam_key = f"{exam_link_details.get('position','')} - {exam_link_details.get('agency','')} - {exam_link_details.get('year','')}"
-        
-        # Check if we already have PDF URLs for this exam in the master list
-        if exam_key in exam_pdf_urls:
-            print(f"Already have PDF URLs for {exam_key} in master list.")
-            # Optionally, you might still want to call update_exam_with_pdf_urls
-            # if the cargo-specific JSON could be missing or outdated,
-            # and you have the pdf_urls from exam_pdf_urls[exam_key].
-            # For this example, we'll skip to avoid re-processing if already in master.
-            # However, to ensure cargo-specific files are robustly populated even if master exists,
-            # one might pass exam_pdf_urls[exam_key] to update_exam_with_pdf_urls here.
-            # For now, let's keep the original skip logic for the master list.
-            # If you want to ensure the cargo-specific file is updated even if master key exists:
-            # pdf_urls_from_master = exam_pdf_urls.get(exam_key)
-            # if pdf_urls_from_master:
-            #     update_exam_with_pdf_urls(cargo_name, exam_link_details, pdf_urls_from_master)
-            continue # Skip to next exam if already processed for master list
-        
-        # Extract PDF URLs from the exam detail page
-        pdf_urls = extract_pdf_urls(page, exam_link_details["url"])
-        
-        if pdf_urls:
-            # Add PDF URLs to our master data
-            exam_pdf_urls[exam_key] = pdf_urls
-            print(f"Added {len(pdf_urls)} PDF URLs for {exam_key} to master list.")
-            
-            # Update the exam data in the cargo-specific JSON file
-            # Pass the full exam_link_details dictionary
-            update_exam_with_pdf_urls(cargo_name, exam_link_details, pdf_urls)
-        else:
-            print(f"No PDF URLs found for {exam_key}")
-        
-        # Save PDF URLs master data after each exam to avoid losing progress
-        try:
-            with open(pdf_urls_file, "w", encoding="utf-8") as f:
-                json.dump(exam_pdf_urls, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"Error saving master PDF URL list to {pdf_urls_file}: {e}")
+    for i, exam_details_from_link in enumerate(exam_link_list):
+        # Add cargo_source to the details
+        exam_details_from_link['cargo_source'] = cargo_name
 
-        # Add a small delay to avoid overloading the server
-        time.sleep(2)
+        print(f"Processing exam {i+1}/{len(exam_link_list)}: {exam_details_from_link.get('position','N/A')} - {exam_details_from_link.get('agency','N/A')} - {exam_details_from_link.get('year','N/A')}")
+        
+        current_exam_key = f"{exam_details_from_link.get('position','')} - {exam_details_from_link.get('agency','')} - {exam_details_from_link.get('year','')}"
+        
+        found_exam_index = -1
+        for idx, exam_in_all_data in enumerate(all_exams_data_list):
+            key_from_all_data = f"{exam_in_all_data.get('position','')} - {exam_in_all_data.get('agency','')} - {exam_in_all_data.get('year','')}"
+            if key_from_all_data == current_exam_key:
+                found_exam_index = idx
+                break
+        
+        if found_exam_index != -1 and all_exams_data_list[found_exam_index].get('PdfUrls'):
+            print(f"Already have PDF URLs for {current_exam_key}. Updating other details.")
+            all_exams_data_list[found_exam_index].update(exam_details_from_link)
+            time.sleep(0.5) 
+            continue
+
+        pdf_urls = extract_pdf_urls(page, exam_details_from_link["url"])
+        
+        if found_exam_index != -1: 
+            all_exams_data_list[found_exam_index].update(exam_details_from_link)
+            if pdf_urls:
+                all_exams_data_list[found_exam_index]['PdfUrls'] = pdf_urls
+                print(f"Updated PDF URLs for {current_exam_key}")
+            else:
+                if 'PdfUrls' not in all_exams_data_list[found_exam_index]:
+                    all_exams_data_list[found_exam_index]['PdfUrls'] = []
+                print(f"No new PDF URLs found for {current_exam_key}. Existing PDF URLs (if any) kept.")
+                
+        else: 
+            new_exam_entry = exam_details_from_link.copy()
+            new_exam_entry['PdfUrls'] = pdf_urls if pdf_urls else []
+            all_exams_data_list.append(new_exam_entry)
+            if pdf_urls:
+                print(f"Added new entry for {current_exam_key} with PDF URLs.")
+            else:
+                print(f"Added new entry for {current_exam_key} (no PDF URLs found).")
+        
+        time.sleep(2) 
     
     print(f"Completed processing {cargo_name}")
-    return True
 
 # Main function to process all cargos
 def main():
+    output_json_file = "output.json"
+    all_exams_data = []
+
+    if os.path.exists(output_json_file):
+        try:
+            with open(output_json_file, "r", encoding="utf-8") as f:
+                all_exams_data = json.load(f)
+            if not isinstance(all_exams_data, list):
+                print(f"Warning: Content of {output_json_file} was not a list. Reinitializing.")
+                all_exams_data = []
+        except json.JSONDecodeError:
+            print(f"Error decoding JSON from {output_json_file}. File will be reinitialized.")
+            all_exams_data = []
+        except Exception as e:
+            print(f"An unexpected error occurred while loading {output_json_file}: {e}. File will be reinitialized.")
+            all_exams_data = []
+    else:
+        print(f"{output_json_file} not found. A new file will be created.")
+
     # List of ALL cargos from PCIConcursos provas page
+    # (Ensure this list is complete and accurate)
     cargos = [
         {"name": "Administração", "url": "https://www.pciconcursos.com.br/provas/administracao"},
         {"name": "Administrador", "url": "https://www.pciconcursos.com.br/provas/administrador"},
         {"name": "Administrador Hospitalar", "url": "https://www.pciconcursos.com.br/provas/administrador-hospitalar"},
-        # ... (the rest of your cargos list remains the same)
         {"name": "Administrador Júnior", "url": "https://www.pciconcursos.com.br/provas/administrador-junior"},
         {"name": "Advogado", "url": "https://www.pciconcursos.com.br/provas/advogado"},
         {"name": "Advogado Júnior", "url": "https://www.pciconcursos.com.br/provas/advogado-junior"},
@@ -420,7 +337,7 @@ def main():
         {"name": "Engenheiro Civil Júnior", "url": "https://www.pciconcursos.com.br/provas/engenheiro-civil-junior"},
         {"name": "Engenheiro de alimentos", "url": "https://www.pciconcursos.com.br/provas/engenheiro-de-alimentos"},
         {"name": "Engenheiro de Pesca", "url": "https://www.pciconcursos.com.br/provas/engenheiro-de-pesca"},
-        {"name": "Engenheiro de Producão", "url": "https://www.pciconcursos.com.br/provas/engenheiro-de-producao"},
+        {"name": "Engenheiro de Producão", "url": "https://www.pciconcursos.com.br/provas/engenheiro-de-producao"}, # Corrected "Producão" to "Produção"
         {"name": "Engenheiro de Segurança do Trabalho", "url": "https://www.pciconcursos.com.br/provas/engenheiro-de-seguranca-do-trabalho"},
         {"name": "Engenheiro de Telecomunicações", "url": "https://www.pciconcursos.com.br/provas/engenheiro-de-telecomunicacoes"},
         {"name": "Engenheiro Eletricista", "url": "https://www.pciconcursos.com.br/provas/engenheiro-eletricista"},
@@ -625,22 +542,36 @@ def main():
     ]
     
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True) # Set to False to see browser UI
-        context = browser.new_context()
+        # browser = playwright.chromium.launch(headless=False) # Set to False to see browser UI
+        browser = playwright.chromium.launch(headless=True) 
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        )
         page = context.new_page()
         
-        # Process each cargo
         for i, cargo in enumerate(cargos):
-            print(f"Processing cargo {i+1}/{len(cargos)}: {cargo['name']}")
-            process_cargo(page, cargo["name"], cargo["url"])
+            print(f"\nProcessing CARGO {i+1}/{len(cargos)}: {cargo['name']}")
+            process_cargo(page, cargo["name"], cargo["url"], all_exams_data)
             
-            # Add a small delay to avoid overloading the server
-            time.sleep(3) # Delay between processing different cargos
+            try:
+                with open(output_json_file, "w", encoding="utf-8") as f:
+                    json.dump(all_exams_data, f, ensure_ascii=False, indent=2)
+                print(f"Progress saved to {output_json_file} after processing {cargo['name']}")
+            except Exception as e:
+                print(f"Error saving intermediate data to {output_json_file}: {e}")
+            
+            time.sleep(3) 
         
         browser.close()
+    
+    try:
+        with open(output_json_file, "w", encoding="utf-8") as f:
+            json.dump(all_exams_data, f, ensure_ascii=False, indent=2)
+        print(f"\nAll data successfully saved to {output_json_file}")
+    except Exception as e:
+        print(f"Error saving final data to {output_json_file}: {e}")
     
     print("PDF URL extraction completed!")
 
 if __name__ == "__main__":
     main()
-    
