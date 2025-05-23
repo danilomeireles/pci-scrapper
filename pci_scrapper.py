@@ -90,7 +90,47 @@ def extract_exam_links_from_cargo_page(page, cargo_url):
     return exam_links
 
 
-def process_cargo_page(page, cargo_name, cargo_url, all_exams_data_list):
+def save_single_exam_to_json(exam_data, file_path):
+    """Save a single exam entry to the JSON file immediately"""
+    try:
+        # Load existing data
+        existing_data = []
+        if os.path.exists(file_path):
+            with open(file_path, "r", encoding="utf-8") as f:
+                existing_data = json.load(f)
+
+        # Add new exam data
+        existing_data.append(exam_data)
+
+        # Save updated data
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(existing_data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving exam data to {file_path}: {e}")
+        return False
+
+
+def update_existing_exam_in_json(exam_data, exam_index, file_path):
+    """Update an existing exam entry in the JSON file"""
+    try:
+        # Load existing data
+        with open(file_path, "r", encoding="utf-8") as f:
+            existing_data = json.load(f)
+
+        # Update the specific exam
+        existing_data[exam_index] = exam_data
+
+        # Save updated data
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(existing_data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error updating exam data in {file_path}: {e}")
+        return False
+
+
+def process_cargo_page(page, cargo_name, cargo_url, all_exams_data_list, output_json_file):
     print(f"Processing cargo: {cargo_name} at {cargo_url}")
 
     exam_link_list = extract_exam_links_from_cargo_page(page, cargo_url)
@@ -122,22 +162,27 @@ def process_cargo_page(page, cargo_name, cargo_url, all_exams_data_list):
         if found_exam_index != -1 and 'PdfUrls' in all_exams_data_list[found_exam_index]:
             print(f"Data for '{current_exam_key}' with PDF URLs already processed. Updating other details.")
             all_exams_data_list[found_exam_index].update(exam_details)
+            update_existing_exam_in_json(all_exams_data_list[found_exam_index], found_exam_index, output_json_file)
             time.sleep(0.5)
             continue
 
         pdf_urls = extract_pdf_urls_from_page(page, exam_details["url"])
 
         if found_exam_index != -1:
+            # Update existing exam
             all_exams_data_list[found_exam_index].update(exam_details)
             all_exams_data_list[found_exam_index]['PdfUrls'] = pdf_urls if pdf_urls else []
+            update_existing_exam_in_json(all_exams_data_list[found_exam_index], found_exam_index, output_json_file)
             if pdf_urls:
                 print(f"Updated PDF URLs for existing entry '{current_exam_key}'")
             else:
                 print(f"No new PDF URLs found or page load failed for '{current_exam_key}'.")
         else:
+            # Add new exam
             new_exam_entry = exam_details.copy()
             new_exam_entry['PdfUrls'] = pdf_urls if pdf_urls else []
             all_exams_data_list.append(new_exam_entry)
+            save_single_exam_to_json(new_exam_entry, output_json_file)
             if pdf_urls:
                 print(f"Added new entry for '{current_exam_key}' with PDF URLs.")
             else:
@@ -167,6 +212,22 @@ def load_existing_data(file_path):
     return []
 
 
+def create_initial_json_file(file_path):
+    """Create an empty JSON file if it doesn't exist"""
+    if not os.path.exists(file_path):
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump([], f, ensure_ascii=False, indent=2)
+            print(f"Created initial empty JSON file: {file_path}")
+            return True
+        except Exception as e:
+            print(f"Error creating initial JSON file {file_path}: {e}")
+            return False
+    else:
+        print(f"JSON file {file_path} already exists.")
+        return True
+
+
 def save_data_to_json(data, file_path):
     try:
         with open(file_path, "w", encoding="utf-8") as f:
@@ -179,6 +240,13 @@ def save_data_to_json(data, file_path):
 
 def main():
     output_json_file = "output.json"
+
+    # Create the JSON file immediately if it doesn't exist
+    if not create_initial_json_file(output_json_file):
+        print("Failed to create initial JSON file. Exiting.")
+        return
+
+    # Load existing data
     all_exams_data = load_existing_data(output_json_file)
 
     base_url = "https://www.pciconcursos.com.br/provas/"
@@ -547,29 +615,21 @@ def main():
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=False)
-        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
         page = context.new_page()
 
         for i, path in enumerate(cargos):
             cargo_url = base_url + path
             cargo_name = path.replace('-', ' ').title()
             print(f"\nProcessing CARGO {i + 1}/{len(cargos)}: {cargo_name}")
-            process_cargo_page(page, cargo_name, cargo_url, all_exams_data)
-
-            if save_data_to_json(all_exams_data, output_json_file):
-                print(f"Progress saved to {output_json_file} after processing {cargo_name}")
-            else:
-                print(f"Failed to save progress to {output_json_file} after processing {cargo_name}")
+            process_cargo_page(page, cargo_name, cargo_url, all_exams_data, output_json_file)
 
             time.sleep(3)
 
         browser.close()
 
-    if save_data_to_json(all_exams_data, output_json_file):
-        print(f"\nAll data successfully saved to {output_json_file}")
-    else:
-        print(f"\nFailed to save final data to {output_json_file}")
-
+    print(f"\nAll data successfully saved to {output_json_file}")
     print("PDF URL extraction completed!")
 
 
