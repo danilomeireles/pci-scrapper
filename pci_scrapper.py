@@ -184,9 +184,11 @@ def process_cargo_page(page, cargo_name, cargo_url, all_exams_data_list, output_
             all_exams_data_list.append(new_exam_entry)
             save_single_exam_to_json(new_exam_entry, output_json_file)
             if pdf_urls:
-                print(f"Added new exam for '{current_exam_key}' with PDF URLs. Total exams added: {len(all_exams_data_list)}")
+                print(f"Added new exam for '{current_exam_key}' with PDF URLs.")
             else:
                 print(f"Added new exam for '{current_exam_key}' (no PDF URLs found or page load failed).")
+
+            print(f"Total exams added: {len(all_exams_data_list)}")
 
         time.sleep(2)
 
@@ -243,7 +245,7 @@ def main():
 
     # Create the JSON file immediately if it doesn't exist
     if not create_initial_json_file(output_json_file):
-        print("Failed to create initial JSON file. Exiting.")
+        print("The output.json file already exists and will be used to add pending exams.")
         return
 
     # Load existing data
@@ -614,7 +616,7 @@ def main():
     ]
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=False)
+        browser = playwright.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
         page = context.new_page()
