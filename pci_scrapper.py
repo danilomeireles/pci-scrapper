@@ -184,9 +184,9 @@ def process_cargo_page(page, cargo_name, cargo_url, all_exams_data_list, output_
             all_exams_data_list.append(new_exam_entry)
             save_single_exam_to_json(new_exam_entry, output_json_file)
             if pdf_urls:
-                print(f"Added new entry for '{current_exam_key}' with PDF URLs.")
+                print(f"Added new exam for '{current_exam_key}' with PDF URLs. Total exams added: {len(all_exams_data_list)}")
             else:
-                print(f"Added new entry for '{current_exam_key}' (no PDF URLs found or page load failed).")
+                print(f"Added new exam for '{current_exam_key}' (no PDF URLs found or page load failed).")
 
         time.sleep(2)
 
